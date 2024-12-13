@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "newslatter_lead-generator"
+version = "0.1.0"
+description = ""
+authors = [
+    "dimitarpashov"
+]
+packages = [{include = "source_researcher", from="src"},{include = "enrichment_agent", from="src"}]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.13"
+langgraph = "^0.2.0"
+langchain_core = "^0.3.0"
+langchain_community = "^0.3.0"
+langchainhub = "^0.1.21"
+langchain-ollama = "^0.2.0"
+pytest-asyncio = "^0.24.0"
+langgraph-cli = {extras = ["inmem"], version = "^0.1.61"}
+langchain-openai = "^0.2.11"
+
+
+[tool.poetry.group.dev.dependencies]
+langgraph-cli = {version = "^0.1.61", extras = ["inmem"]}
+autopep8 = "^2.3.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
