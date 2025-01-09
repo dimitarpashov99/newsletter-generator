@@ -2,7 +2,9 @@
   "dependencies": ["."],
   "graphs": {
     "source_research": "src/source_researcher/agent.py:graph",
-    "enrichment_agent": "src/enrichment_agent/agent.py:graph"
+    "enrichment_agent": "src/enrichment_agent/agent.py:graph",
+    "compositor_agent": "src/compositor_agent/agent.py:graph",
+    "newslatter_gen" : "src/newsletter-gen.py:graph"
   },
   "env": ".env"
 }

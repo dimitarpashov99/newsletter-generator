@@ -5,7 +5,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AnyMessage
 from langchain_core.runnables import RunnableConfig
 
-from source_researcher.configuration import Configuration
+from enrichment_agent.configuration import Configuration
 
 
 def get_message_text(msg: AnyMessage) -> str:
@@ -28,4 +28,3 @@ def init_model(config: Optional[RunnableConfig] = None) -> BaseChatModel:
         provider = None
         model = fully_specified_name
     return init_chat_model(model, model_provider=provider)
-

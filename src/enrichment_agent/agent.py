@@ -10,13 +10,14 @@ from enrichment_agent.tools import scrape_website, search
 workflow = StateGraph(
     State, input=InputState, output=OutputState, config_schema=Configuration
 )
+
 workflow.add_node(call_agent_model)
 workflow.add_node(reflect)
 workflow.add_node("tools", ToolNode([search, scrape_website]))
+
 workflow.add_edge("__start__", "call_agent_model")
 workflow.add_conditional_edges("call_agent_model", route_after_agent)
 workflow.add_edge("tools", "call_agent_model")
 workflow.add_conditional_edges("reflect", route_after_checker)
 
 graph = workflow.compile()
-graph.name = "ResearchTopic"

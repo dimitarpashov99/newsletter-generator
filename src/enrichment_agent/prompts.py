@@ -27,3 +27,10 @@ Based on the website content below, write down some notes about the website.
 <Website content>
 {content}
 </Website content>"""
+
+CHECKER_PROMPT = """I am thinking of calling the info tool with the info below. \
+    Is this good? Give your reasoning as well. \
+    You can encourage the Assistant to look at specific URLs if that seems relevant, or do more searches.
+    If you don't think it is good, you should be very specific about what could be improved.
+
+{presumed_info}"""

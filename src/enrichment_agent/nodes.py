@@ -16,7 +16,6 @@ async def call_agent_model(
     state: State, *, config: Optional[RunnableConfig] = None
 ) -> Dict[str, Any]:
     
-    # Load configuration from the provided RunnableConfig
     configuration = Configuration.from_runnable_config(config)
 
     info_tool = {
@@ -86,12 +85,7 @@ async def reflect(
         )
     messages = [HumanMessage(content=p)] + state.messages[:-1]
     presumed_info = state.info
-    checker_prompt = """I am thinking of calling the info tool with the info below. \
-    Is this good? Give your reasoning as well. \
-    You can encourage the Assistant to look at specific URLs if that seems relevant, or do more searches.
-    If you don't think it is good, you should be very specific about what could be improved.
-
-{presumed_info}"""
+    checker_prompt = prompts.CHECKER_PROMPT
     p1 = checker_prompt.format(presumed_info=json.dumps(presumed_info or {}, indent=2))
     messages.append(HumanMessage(content=p1))
     raw_model = init_model(config)

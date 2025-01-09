@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Literal, Optional, cast
+from typing import Any, Dict, List, Literal, Optional, cast, Annotated 
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -17,15 +17,15 @@ async def call_agent_model(
 ) -> Dict[str, Any]:
 
     configuration = Configuration.from_runnable_config(config)
-
+    schema = configuration.extraction_schema
     info_tool = {
         "name": "Info",
         "description": "Call this when you have gathered all the relevant info",
-        "parameters": state.extraction_schema,
+        "parameters": schema,
     }
 
     p = configuration.prompt.format(
-        info=json.dumps(state.extraction_schema, indent=2), topic=state.topic
+        info=json.dumps(schema, indent=2), topic=state.topic
     )
 
     messages = [HumanMessage(content=p)] + state.messages
@@ -74,8 +74,9 @@ class InfoIsSatisfactory(BaseModel):
 async def reflect(
     state: State, *, config: Optional[RunnableConfig] = None
 ) -> Dict[str, Any]:
-    p = prompts.MAIN_PROMPT.format(
-        info=json.dumps(state.extraction_schema, indent=2), topic=state.topic
+    configuration = Configuration.from_runnable_config(config)
+    p = prompts.researcher_prompt.format(
+        info=json.dumps(configuration.extraction_schema, indent=2), topic=state.topic
     )
     last_message = state.messages[-1]
     if not isinstance(last_message, AIMessage):
@@ -114,7 +115,7 @@ async def reflect(
             "messages": [
                 ToolMessage(
                     tool_call_id=last_message.tool_calls[0]["id"],
-                    content=f"Unsatisfactory response:\n{response.improvement_instructions}",
+                    content=f"Unsatisfactory response:\n {response.improvement_instructions}",
                     name="Info",
                     additional_kwargs={"artifact": response.model_dump()},
                     status="error",
@@ -138,7 +139,7 @@ def route_after_agent(
 
 def route_after_checker(
     state: State, config: RunnableConfig
-) -> Literal["__end__", "agent"]:
+) -> Literal["agent", "finalize", '__end__']:
     configurable = Configuration.from_runnable_config(config)
     last_message = state.messages[-1]
 
@@ -151,6 +152,38 @@ def route_after_checker(
             )
         if last_message.status == "error":
             return "agent"
-        return "__end__"
+        return "finalize"
     else:
-        return "__end__"
+        return "finalize"
+
+async def finalize_results(state: State, *, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
+
+    raw_sources = state.sources_gathered
+
+    organized_sources = {
+        "primary_sources": [],
+        "supporting_sources": [],
+        "reference_materials": []
+    }
+    
+    for source in raw_sources:
+        relevance = source.get("relevance_score", 0.5)
+        processed_source = {
+            "url": source.get("url", ""),
+            "category": source.get("category", "unknown"),
+            "metadata": source.get("metadata", {}),
+            "key_topics": source.get("key_topics", [])
+        }
+        
+        if relevance > 0.8:
+            organized_sources["primary_sources"].append(processed_source)
+        elif relevance > 0.5:
+            organized_sources["supporting_sources"].append(processed_source)
+        else:
+            organized_sources["reference_materials"].append(processed_source)
+    
+    return {
+        "info": state.info,
+        "messages": state.messages,
+        "sources_gathered": state.sources_gathered
+    }
