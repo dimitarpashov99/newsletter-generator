@@ -1,189 +1,63 @@
-import json
-from typing import Any, Dict, List, Literal, Optional, cast, Annotated 
-
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from typing import Any, Dict, Literal, Optional, cast
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
-
-from pydantic import BaseModel, Field
-
 from source_researcher import prompts
 from source_researcher.configuration import Configuration
 from source_researcher.state import State
-from source_researcher.tools import search
+from source_researcher.tools import tools
 from source_researcher.utils import init_model
 
-async def call_agent_model(
+from pydantic import BaseModel
+
+class ResearchQuery(BaseModel):
+    query: str
+
+async def generate_query(state: State, *, config: Optional[RunnableConfig] = None):
+    """ Generate a query for web search """
+    query_writer_instructions_formatted = prompts.query_writer.format(topic=state.topic)
+    raw_model = init_model(config)
+    bound_model = raw_model.with_structured_output(ResearchQuery)
+    messages = [SystemMessage(content=query_writer_instructions_formatted),
+        HumanMessage(content=f"Generate a query for web search:")]
+    response = cast(ResearchQuery, await bound_model.ainvoke(messages))
+    
+    return {"research_query": response.query}
+
+async def research_agent(
     state: State, *, config: Optional[RunnableConfig] = None
 ) -> Dict[str, Any]:
-
-    configuration = Configuration.from_runnable_config(config)
-    schema = configuration.extraction_schema
-    info_tool = {
-        "name": "Info",
-        "description": "Call this when you have gathered all the relevant info",
-        "parameters": schema,
-    }
-
-    p = configuration.prompt.format(
-        info=json.dumps(schema, indent=2), topic=state.topic
-    )
-
-    messages = [HumanMessage(content=p)] + state.messages
-
+    if state.messages and len(state.messages) > 0:
+        last_message = state.messages[-1]
+        if last_message.type == 'tool':
+            return {
+                'sources_gathered': [last_message.content],
+                "loop_step": state.loop_step + 1
+            }
+    query = state.research_query
     raw_model = init_model(config)
-    model = raw_model.bind_tools([search, info_tool], tool_choice="any")
-    response = cast(AIMessage, await model.ainvoke(messages))
-    info = None
+    model = raw_model.bind_tools(tools, tool_choice="any")
+    messages = [HumanMessage(content=f"Search for information on: {query}")]
+    response = await model.ainvoke(messages)
+    state.messages.append(response)
 
-    if response.tool_calls:
-        for tool_call in response.tool_calls:
-            if tool_call["name"] == "Info":
-                info = tool_call["args"]
-                break
-    if info is not None:
-        response.tool_calls = [
-            next(tc for tc in response.tool_calls if tc["name"] == "Info")
-        ]
-
-    response_messages: List[BaseMessage] = [response]
-    if not response.tool_calls:
-        response_messages.append(
-            HumanMessage(content="Please respond by calling one of the provided tools.")
-        )
     return {
-        "messages": response_messages,
-        "info": info,
-        "loop_step": 1,
-    }
-
-
-class InfoIsSatisfactory(BaseModel):
-    reason: List[str] = Field(
-        description="First, provide reasoning for why this is either good or bad as a final result. Must include at least 3 reasons."
-    )
-    is_satisfactory: bool = Field(
-        description="After providing your reasoning, provide a value indicating whether the result is satisfactory. If not, you will continue researching."
-    )
-    improvement_instructions: Optional[str] = Field(
-        description="If the result is not satisfactory, provide clear and specific instructions on what needs to be improved or added to make the information satisfactory."
-        " This should include details on missing information, areas that need more depth, or specific aspects to focus on in further research.",
-        default=None,
-    )
-
-
-async def reflect(
-    state: State, *, config: Optional[RunnableConfig] = None
-) -> Dict[str, Any]:
-    configuration = Configuration.from_runnable_config(config)
-    p = prompts.researcher_prompt.format(
-        info=json.dumps(configuration.extraction_schema, indent=2), topic=state.topic
-    )
-    last_message = state.messages[-1]
-    if not isinstance(last_message, AIMessage):
-        raise ValueError(
-            f"{reflect.__name__} expects the last message in the state to be an AI message with tool calls."
-            f" Got: {type(last_message)}"
-        )
-    messages = [HumanMessage(content=p)] + state.messages[:-1]
-    presumed_info = state.info
-    checker_prompt = """I am thinking of calling the info tool with the info below. \
-    Is this good? Give your reasoning as well. \
-    You can encourage the Assistant to look at specific URLs if that seems relevant, or do more searches.
-    If you don't think it is good, you should be very specific about what could be improved.
-    {presumed_info}"""
-
-    p1 = checker_prompt.format(presumed_info=json.dumps(presumed_info or {}, indent=2))
-    messages.append(HumanMessage(content=p1))
-    raw_model = init_model(config)
-    bound_model = raw_model.with_structured_output(InfoIsSatisfactory)
-    response = cast(InfoIsSatisfactory, await bound_model.ainvoke(messages))
-    if response.is_satisfactory and presumed_info:
-        return {
-            "info": presumed_info,
-            "messages": [
-                ToolMessage(
-                    tool_call_id=last_message.tool_calls[0]["id"],
-                    content="\n".join(response.reason),
-                    name="Info",
-                    additional_kwargs={"artifact": response.model_dump()},
-                    status="success",
-                )
-            ],
-        }
-    else:
-        return {
-            "messages": [
-                ToolMessage(
-                    tool_call_id=last_message.tool_calls[0]["id"],
-                    content=f"Unsatisfactory response:\n {response.improvement_instructions}",
-                    name="Info",
-                    additional_kwargs={"artifact": response.model_dump()},
-                    status="error",
-                )
-            ]
-        }
-
-
-def route_after_agent(
-    state: State,
-) -> Literal["action", "agent", "tools", "__end__"]:
-    last_message = state.messages[-1]
-    if not isinstance(last_message, AIMessage):
-        return "agent"
-    
-    if last_message.tool_calls and last_message.tool_calls[0]["name"] == "Info":
-        return "action"
-    else:
-        return "tools"
-
-
-def route_after_checker(
-    state: State, config: RunnableConfig
-) -> Literal["agent", "finalize", '__end__']:
-    configurable = Configuration.from_runnable_config(config)
-    last_message = state.messages[-1]
-
-    if state.loop_step < configurable.max_loops:
-        if not state.info:
-            return "agent"
-        if not isinstance(last_message, ToolMessage):
-            raise ValueError(
-                f"{route_after_checker.__name__} expected a tool messages. Received: {type(last_message)}."
-            )
-        if last_message.status == "error":
-            return "agent"
-        return "finalize"
-    else:
-        return "finalize"
-
-async def finalize_results(state: State, *, config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
-
-    raw_sources = state.sources_gathered
-
-    organized_sources = {
-        "primary_sources": [],
-        "supporting_sources": [],
-        "reference_materials": []
-    }
-    
-    for source in raw_sources:
-        relevance = source.get("relevance_score", 0.5)
-        processed_source = {
-            "url": source.get("url", ""),
-            "category": source.get("category", "unknown"),
-            "metadata": source.get("metadata", {}),
-            "key_topics": source.get("key_topics", [])
-        }
-        
-        if relevance > 0.8:
-            organized_sources["primary_sources"].append(processed_source)
-        elif relevance > 0.5:
-            organized_sources["supporting_sources"].append(processed_source)
-        else:
-            organized_sources["reference_materials"].append(processed_source)
-    
-    return {
-        "info": state.info,
         "messages": state.messages,
-        "sources_gathered": state.sources_gathered
+        "loop_step": state.loop_step + 1
     }
+
+async def finalize_research(
+    state: State, 
+    *, 
+    config: Optional[RunnableConfig] = None
+) -> Dict[str, Any]:
+    
+    return state
+
+def route_after_search(
+    state: State, config: RunnableConfig
+) -> Literal['tavily_search', "finalize_research"]:
+    configuration = Configuration.from_runnable_config(config)
+    if state.loop_step <= configuration.max_loops:
+        return "tavily_search"
+    else:
+        return "finalize_research"

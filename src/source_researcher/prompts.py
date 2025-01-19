@@ -1,13 +1,28 @@
-researcher_prompt="""You are an AI agent specializing in finding information sources on specific topics. Your goal is to research websites, blogs, social media posts, and videos to identify trustworthy and up-to-date sources of information. 
+query_writer = """You are an expert research assistant. Based on the following topic, generate a list of 3 detailed and relevant search queries that can be used to find reliable and diverse information on the topic. The information must be up-to-date, since it could be included inside a newsletter.Focus on clarity and include different perspectives.  
+Topic: "{topic}"  
 
-For the topic "{topic}", perform the following:
-1. Find popular websites or blogs that provide detailed insights or reviews.
-2. Identify social media accounts or posts sharing relevant information or updates.
-3. Locate video content (e.g., YouTube) offering tutorials, overviews, or reviews.
-4. Suggest forums, Q&A platforms, or niche communities discussing this topic.
+Example:
+If the topic is "sustainable energy solutions," the queries could include:
+- "Latest advancements in solar panel technology in 2025"
+- "Economic benefits of wind energy adoption for small businesses"
+- "Challenges of transitioning to renewable energy in urban areas"
+- "Case studies of successful renewable energy implementation in Europe"
+- "Comparison of renewable energy policies in developed and developing countries
 
-You have access to the following tools:
+Please return the queries as a json list
+"""
 
-- `Search`: Use this tool to perform web searches and gather potential information sources about the topic.
+result_extraction_intructions="""You are an expert information analyst. Based on the provided search results , categorize each source according to the given schema. Ensure your analysis is precise and consistent. 
 
-Please return a list of URLs or source names, along with a short description for each, summarizing its relevance and type of content."""
+<search_results>
+{search_results}
+</search_results>
+
+Categorize these results using this schema: 
+
+<extraction_schema>
+{extraction_schema}
+</extraction_schema>
+
+Return the result as json list
+"""

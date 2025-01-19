@@ -1,151 +1,70 @@
 import json
 from typing import Any, Dict, List, Literal, Optional, cast
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
-
-from pydantic import BaseModel, Field
 
 from enrichment_agent import prompts
 from enrichment_agent.configuration import Configuration
 from enrichment_agent.state import State
-from enrichment_agent.tools import scrape_website, search
+from enrichment_agent.tools import scrape_website
 from enrichment_agent.utils import init_model
+from pydantic import BaseModel, Field
 
 async def call_agent_model(
     state: State, *, config: Optional[RunnableConfig] = None
 ) -> Dict[str, Any]:
-    
+    if len(state.enriched_sources):
+        messages =  state.messages + [HumanMessage(content="Data enriched!")]
+        return {
+            "messages":  state.messages 
+        }
+
     configuration = Configuration.from_runnable_config(config)
-
-    info_tool = {
-        "name": "Info",
-        "description": "Call this when you have gathered all the relevant info",
-        "parameters": state.extraction_schema,
-    }
-
     p = configuration.prompt.format(
-        info=json.dumps(state.extraction_schema, indent=2), topic=state.topic
+        topic=state.topic,
+        gathered_sources=json.dumps(state.sources_gathered, indent=2)
     )
-
     messages = [HumanMessage(content=p)] + state.messages
-
     raw_model = init_model(config)
-    model = raw_model.bind_tools([scrape_website, search, info_tool], tool_choice="any")
+    model = raw_model.bind_tools([scrape_website], tool_choice="any")
     response = cast(AIMessage, await model.ainvoke(messages))
-
-    info = None
-
-    if response.tool_calls:
-        for tool_call in response.tool_calls:
-            if tool_call["name"] == "Info":
-                info = tool_call["args"]
-                break
-    if info is not None:
-        response.tool_calls = [
-            next(tc for tc in response.tool_calls if tc["name"] == "Info")
-        ]
     response_messages: List[BaseMessage] = [response]
-    if not response.tool_calls:
-        response_messages.append(
-            HumanMessage(content="Please respond by calling one of the provided tools.")
-        )
     return {
         "messages": response_messages,
-        "info": info,
-        "loop_step": 1,
     }
 
-
-class InfoIsSatisfactory(BaseModel):
-    reason: List[str] = Field(
-        description="First, provide reasoning for why this is either good or bad as a final result. Must include at least 3 reasons."
-    )
-    is_satisfactory: bool = Field(
-        description="After providing your reasoning, provide a value indicating whether the result is satisfactory. If not, you will continue researching."
-    )
-    improvement_instructions: Optional[str] = Field(
-        description="If the result is not satisfactory, provide clear and specific instructions on what needs to be improved or added to make the information satisfactory."
-        " This should include details on missing information, areas that need more depth, or specific aspects to focus on in further research.",
-        default=None,
-    )
-
-
-async def reflect(
+def retrieve_sources(
     state: State, *, config: Optional[RunnableConfig] = None
 ) -> Dict[str, Any]:
-    p = prompts.MAIN_PROMPT.format(
-        info=json.dumps(state.extraction_schema, indent=2), topic=state.topic
-    )
-    last_message = state.messages[-1]
-    if not isinstance(last_message, AIMessage):
-        raise ValueError(
-            f"{reflect.__name__} expects the last message in the state to be an AI message with tool calls."
-            f" Got: {type(last_message)}"
-        )
-    messages = [HumanMessage(content=p)] + state.messages[:-1]
-    presumed_info = state.info
-    checker_prompt = prompts.CHECKER_PROMPT
-    p1 = checker_prompt.format(presumed_info=json.dumps(presumed_info or {}, indent=2))
-    messages.append(HumanMessage(content=p1))
-    raw_model = init_model(config)
-    bound_model = raw_model.with_structured_output(InfoIsSatisfactory)
-    response = cast(InfoIsSatisfactory, await bound_model.ainvoke(messages))
-    if response.is_satisfactory and presumed_info:
-        return {
-            "info": presumed_info,
-            "messages": [
-                ToolMessage(
-                    tool_call_id=last_message.tool_calls[0]["id"],
-                    content="\n".join(response.reason),
-                    name="Info",
-                    additional_kwargs={"artifact": response.model_dump()},
-                    status="success",
-                )
-            ],
-        }
-    else:
-        return {
-            "messages": [
-                ToolMessage(
-                    tool_call_id=last_message.tool_calls[0]["id"],
-                    content=f"Unsatisfactory response:\n{response.improvement_instructions}",
-                    name="Info",
-                    additional_kwargs={"artifact": response.model_dump()},
-                    status="error",
-                )
-            ]
-        }
+    return state
 
+async def combine_data(
+    state: State, *, config: Optional[RunnableConfig] = None
+) -> Dict[str, Any]:
+    sources_gathered = state.sources_gathered
+    enriched_sources_raw = state.enriched_sources
+    enriched_sources_combined = []
+
+    for source in sources_gathered:
+        enriched_match = next(
+            (item for item in enriched_sources_raw if item.get("source_url") == source.get("url")),
+            None
+        )
+        combined_entry = {
+            "source_data": source,
+            "enriched_data": enriched_match.get("enriched_data", []) if enriched_match else []
+        }
+        enriched_sources_combined.append(combined_entry)
+
+    return {"enriched_sources": enriched_sources_combined}
 
 def route_after_agent(
     state: State,
-) -> Literal["reflect", "tools", "call_agent_model"]:
+) -> Literal[ "scrape_source", "combine_data"]:
     last_message = state.messages[-1]
+
     if not isinstance(last_message, AIMessage):
-        return "call_agent_model"
-    
-    if last_message.tool_calls and last_message.tool_calls[0]["name"] == "Info":
-        return "reflect"
+        return "combine_data"
     else:
-        return "tools"
-
-
-def route_after_checker(
-    state: State, config: RunnableConfig
-) -> Literal["__end__", "call_agent_model"]:
-    configurable = Configuration.from_runnable_config(config)
-    last_message = state.messages[-1]
-
-    if state.loop_step < configurable.max_loops:
-        if not state.info:
-            return "call_agent_model"
-        if not isinstance(last_message, ToolMessage):
-            raise ValueError(
-                f"{route_after_checker.__name__} expected a tool messages. Received: {type(last_message)}."
-            )
-        if last_message.status == "error":
-            return "call_agent_model"
-        return "__end__"
-    else:
-        return "__end__"
+        return "scrape_source"

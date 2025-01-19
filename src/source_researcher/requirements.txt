@@ -1,5 +1,0 @@
-langgraph
-langchain_community
-langchain 
-langchainhub 
-langchain-core

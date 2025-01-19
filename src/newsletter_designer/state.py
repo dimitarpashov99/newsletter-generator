@@ -1,4 +1,3 @@
-import operator
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -7,8 +6,8 @@ from langchain_core.messages import BaseMessage
 
 @dataclass(kw_only=True)
 class InputState:
-    topic: str 
-    draft_structure: List[Dict[str, str]]
+    topic: str
+    draft_structure: Optional[List[Dict[str, str]]] = None
     audience_type: Optional[str] = None
     theme: Optional[str] = None
 

@@ -16,27 +16,14 @@ class Configuration:
             "Should be in the form: provider/model-name."
         },
     )
-    prompt: str = field(
-        default=prompts.MAIN_PROMPT,
-        metadata={
-            "description": "The main prompt template to use for the agent's interactions. "
-            "Expects an f-string arguments: {topic}."
-        },
-    )
     max_search_results: int = field(
         default=5,
         metadata={
             "description": "The maximum number of search results to return for each search query."
         },
     )
-    max_info_tool_calls: int = field(
-        default=3,
-        metadata={
-            "description": "The maximum number of times the Info tool can be called during a single interaction."
-        },
-    )
     max_loops: int = field(
-        default=6,
+        default=1,
         metadata={
             "description": "The maximum number of interaction loops allowed before the agent terminates."
         },
@@ -58,6 +45,10 @@ class Configuration:
                             "url": {
                                 "type": "string",
                                 "description": "URL to the source or specific content"
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "Content of the source"
                             },
                             "content_type": {
                                 "type": "string",
@@ -83,6 +74,7 @@ class Configuration:
                         "required": [
                             "source_name",
                             "url",
+                            "content",
                             "content_type",
                             "relevance",
                             "authority"
