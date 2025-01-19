@@ -18,16 +18,6 @@ Return the result in JSON format.
 
 """
 
-# email_designer_prompt = """
-#     Using the following newsletter structure and audience information:
-#     Structure: {structure}
-#     Audience Type: {audience_type}
-#     Theme: {theme}
-#     Design a professional, visually appealing email newsletter template in HTML format.
-#     Include sections, call-to-action buttons, and a layout optimized for readability.
-#     Provide meta-information about the template, such as the estimated reading time and section count.
-# """
-
 email_designer_prompt = """
 You are an expert HTML email designer. Using the following structured sections, 
 create a professional, visually appealing email newsletter in HTML format. 

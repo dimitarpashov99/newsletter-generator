@@ -20,35 +20,6 @@ class NewsletterDesignOutput(BaseModel):
         description="Meta information about the generated template, such as estimated reading time, sections count."
     )
 
-# @tool    
-# async def design_newsletter(state: State, config) -> State:
-#     """
-#     Generate a newsletter design based on the given title and content.
-    
-#     Args:
-#         title (str): The title of the newsletter.
-#         content (str): The main content of the newsletter.
-
-#     Returns:
-#         State: A state representation of the designed newsletter.
-#     """
-#     p = email_designer_prompt.format(
-#         structure=json.dumps(state.draft_structure, indent=2),
-#         audience_type=state.audience_type or "General Public",
-#         theme=state.theme or "Modern"
-#     )
-    
-#     state.messages.append(HumanMessage(content=p))
-
-#     raw_model = init_model(config)
-#     bound_model = raw_model.with_structured_output(NewsletterDesignOutput)
-#     response = cast(NewsletterDesignOutput, await bound_model.ainvoke(state.messages))
-    
-#     if response.html_template:
-#         state.final_email_template = response.html_template
-#         state.meta_info = response.meta_info
-#     return state
-
 @tool
 async def design_newsletter(
     *, 
